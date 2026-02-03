@@ -35,7 +35,6 @@ app.post("/webhook", async (req, res) => {
     const value = req.body.entry?.[0]?.changes?.[0]?.value;
     const msg = value?.messages?.[0];
 
-    // ✅ FILTRO CORREGIDO: Ignora notificaciones de sistema para evitar "opción inválida"
     if (!msg || msg.type !== 'text' || !msg.text?.body) {
       return res.sendStatus(200);
     }
@@ -43,7 +42,6 @@ app.post("/webhook", async (req, res) => {
     const from = msg.from;
     const text = msg.text.body.toLowerCase().trim();
 
-    // 2. BOTÓN DE PÁNICO
     if (text === "hola" || text === "inicio" || text === "menú") {
       delete users[from];
     }
@@ -54,8 +52,32 @@ app.post("/webhook", async (req, res) => {
     // --- FLUJO DE DIÁLOGO ---
     
     if (user.step === "saludo") {
-      await send(from, `👋 Bienvenido a *Barbería Elite*\n\nEscribe tu *Nombre y Celular* para iniciar.\n\nEjemplo: Juan Pérez, 3001234567`);
-      user.step = "datos";
+      await send(from, `👋 Bienvenido a *Barbería Elite*\n\n¿Qué deseas hacer?\n\n1️⃣ *Agendar cita*\n2️⃣ *Cancelar cita*\n\nEscribe el número de tu opción.`);
+      user.step = "menu_principal";
+    }
+
+    else if (user.step === "menu_principal") {
+      if (text === "1") {
+        await send(from, `Perfecto, vamos a agendar. Escribe tu *Nombre y Celular*.\n\nEjemplo: Juan Pérez, 3001234567`);
+        user.step = "datos";
+      } else if (text === "2") {
+        await send(from, `Entiendo. Para cancelar, escribe el *Nombre exacto* con el que registraste la cita.`);
+        user.step = "esperar_cancelacion";
+      } else {
+        await send(from, "❌ Opción inválida. Elige *1* para agendar o *2* para cancelar.");
+      }
+    }
+
+    else if (user.step === "esperar_cancelacion") {
+      const nombreACancelar = text;
+      await send(from, `⏳ Buscando cita para *${nombreACancelar}*...`);
+      const exito = await cancelarReserva(nombreACancelar, from);
+      if (exito) {
+        await send(from, `✅ Cita cancelada con éxito. El espacio ha sido liberado.`);
+      } else {
+        await send(from, `❌ No encontramos una cita activa para "${nombreACancelar}". Escribe *HOLA* para volver a intentarlo.`);
+      }
+      delete users[from];
     }
 
     else if (user.step === "datos") {
@@ -108,9 +130,9 @@ app.post("/webhook", async (req, res) => {
         const exito = await guardarReserva(user);
         if (exito) {
           await send(from, `🎉 *¡Cita Confirmada!*\n\nTe esperamos el ${user.fecha} a las ${user.hora}. 💈`);
-          delete users[from]; // ✅ Limpia sesión tras éxito
+          delete users[from];
         } else {
-          await send(from, "❌ Error al guardar. Por favor, escribe *SI* para reintentar o *HOLA* para reiniciar.");
+          await send(from, "❌ Error al guardar. Escribe *SI* para reintentar o *HOLA* para reiniciar.");
         }
       } 
       else if (text === "modificar") {
@@ -141,6 +163,17 @@ app.post("/webhook", async (req, res) => {
     res.sendStatus(200);
   }
 });
+
+async function cancelarReserva(nombre, telefono) {
+  try {
+    const res = await axios.post(SHEET_API, {
+      accion: "cancelar",
+      nombre: nombre,
+      telefono: telefono
+    }, { timeout: 8000 });
+    return res.data.ok;
+  } catch (e) { return false; }
+}
 
 async function mostrarBarberos(from, user) {
   user.step = "esperar_barbero";
