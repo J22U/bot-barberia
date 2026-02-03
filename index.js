@@ -58,7 +58,7 @@ app.post("/webhook", async (req, res) => {
 
     else if (user.step === "menu_principal") {
       if (text === "1") {
-        await send(from, `Perfecto, vamos a agendar. Escribe tu *Nombre y Celular*.\n\nEjemplo: Juan Pérez, 3001234567`);
+        await send(from, `Perfecto, vamos a agendar. Escribe tu *Nombre, apellido y Celular*.\n\nEjemplo: Juan Pérez, 3001234567`);
         user.step = "datos";
       } else if (text === "2") {
         await send(from, `Entiendo. Para cancelar, escribe el *Nombre exacto* con el que registraste la cita.`);
