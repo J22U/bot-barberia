@@ -61,29 +61,36 @@ app.post("/webhook", async (req, res) => {
         await send(from, `Perfecto, vamos a agendar. Escribe tu *Nombre, apellido y Celular*.\n\nEjemplo: Juan Pérez, 3001234567`);
         user.step = "datos";
       } else if (text === "2") {
-        await send(from, `⏳ Buscando tus citas activas...`);
-        try {
-          const res = await axios.post(SHEET_API, { accion: "consultar_citas", telefono: from });
-          const citas = res.data.citas;
-
-          if (citas && citas.length > 0) {
-            user.citasPendientes = citas;
-            let mensaje = "Mira tus citas. ¿Cuál deseas cancelar? (Escribe el número):\n\n";
-            citas.forEach((c, i) => {
-              mensaje += `${i + 1}️⃣ *${c.fecha}* a las *${c.hora}* con *${c.barbero}*\n`;
-            });
-            await send(from, mensaje);
-            user.step = "seleccionar_cancelacion";
-          } else {
-            await send(from, "❌ No encontré citas agendadas con tu número de WhatsApp. Escribe *HOLA* para volver al menú.");
-            delete users[from];
-          }
-        } catch (error) {
-          await send(from, "❌ Error al conectar con la agenda. Intenta más tarde.");
-          delete users[from];
-        }
+        // CAMBIO: Ahora pide el nombre para buscar
+        await send(from, `Entiendo. Por favor, escribe el *Nombre* con el que registraste la cita para buscarla.`);
+        user.step = "buscar_por_nombre";
       } else {
         await send(from, "❌ Opción inválida. Elige *1* para agendar o *2* para cancelar.");
+      }
+    }
+
+    // NUEVO PASO: Buscar citas por el nombre proporcionado
+    else if (user.step === "buscar_por_nombre") {
+      await send(from, `⏳ Buscando citas para *${text}*...`);
+      try {
+        const res = await axios.post(SHEET_API, { accion: "consultar_citas", nombre: text });
+        const citas = res.data.citas;
+
+        if (citas && citas.length > 0) {
+          user.citasPendientes = citas;
+          let mensaje = "He encontrado estas citas. ¿Cuál deseas cancelar? (Escribe el número):\n\n";
+          citas.forEach((c, i) => {
+            mensaje += `${i + 1}️⃣ *${c.cliente}* - ${c.fecha} a las ${c.hora} con ${c.barbero}\n`;
+          });
+          await send(from, mensaje);
+          user.step = "seleccionar_cancelacion";
+        } else {
+          await send(from, `❌ No encontré ninguna cita para "${text}". Escribe *HOLA* para volver a intentarlo.`);
+          delete users[from];
+        }
+      } catch (error) {
+        await send(from, "❌ Error al conectar con la agenda. Intenta más tarde.");
+        delete users[from];
       }
     }
 
@@ -92,14 +99,14 @@ app.post("/webhook", async (req, res) => {
       const cita = user.citasPendientes?.[idx];
 
       if (cita) {
-        await send(from, `⏳ Cancelando tu cita...`);
+        await send(from, `⏳ Cancelando la cita de *${cita.cliente}*...`);
         const res = await axios.post(SHEET_API, { 
           accion: "confirmar_cancelacion", 
           id: cita.id, 
           hoja: cita.hoja 
         });
         if (res.data.ok) {
-          await send(from, `✅ Cita del día *${cita.fecha}* con *${cita.barbero}* ha sido cancelada.`);
+          await send(from, `✅ Cita del día *${cita.fecha}* ha sido cancelada con éxito.`);
         } else {
           await send(from, `❌ No pudimos cancelar la cita. Por favor intenta de nuevo.`);
         }
@@ -193,8 +200,6 @@ app.post("/webhook", async (req, res) => {
     res.sendStatus(200);
   }
 });
-
-// Nota: La función cancelarReserva ya no se usa porque la lógica está dentro del webhook paso a paso
 
 async function mostrarBarberos(from, user) {
   user.step = "esperar_barbero";
