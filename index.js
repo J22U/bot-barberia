@@ -8,295 +8,197 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
 
-// ===== CONFIG =====
-
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const PHONE_ID = process.env.PHONE_ID;
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
-
-if (!WHATSAPP_TOKEN || !PHONE_ID) {
-  console.error("❌ Falta WHATSAPP_TOKEN o PHONE_ID");
-  process.exit(1);
-}
-
-// ===== MEMORIA =====
-
-const users = {};
-const reservas = {}; 
-// reservas[barbero][fecha] = [horas ocupadas]
-
-// ===== BARBEROS =====
+const SHEET_API = process.env.SHEET_API; 
 
 const BARBEROS = ["Carlos", "Andrés", "Miguel"];
-
-// ===== SERVICIOS =====
-
 const SERVICIOS = {
   "1": { nombre: "Corte", precio: 20000 },
   "2": { nombre: "Barba", precio: 15000 },
   "3": { nombre: "Corte + Barba", precio: 32000 }
 };
+const HORAS = ["08:00", "08:30", "09:00", "09:30", "10:00", "10:30", "11:30", "12:00", "12:30", "13:00", "13:30", "14:00", "14:30", "15:00", "15:30", "16:00", "16:30", "17:00", "17:30", "18:00", "18:30", "19:00"];
 
-// ==== Bloqueo de horas barberos ====
-
-const axios = require("axios");
-
-async function horasOcupadas(barbero, fecha) {
-  const url = `${process.env.SHEET_API}?barbero=${encodeURIComponent(barbero)}&fecha=${fecha}`;
-  const res = await axios.get(url);
-  return res.data;
-};
-
-const HORAS = [
-  "08:00",
-  "08:30",
-  "09:00",
-  "09:30",
-  "10:00",
-  "10:30",
-  "11:30",
-  "12:00",
-  "12:30",
-  "13:00",
-  "13:30",
-  "14:00",
-  "14:30",
-  "15:00",
-  "15:30",
-  "16:00",
-  "16:30",
-  "17:00",
-  "17:30",
-  "18:00",
-  "18:30",
-  "19:00"
-];
-
-// ===== WEBHOOK VERIFY =====
+const users = {};
 
 app.get("/webhook", (req, res) => {
-  const mode = req.query["hub.mode"];
-  const token = req.query["hub.verify_token"];
-  const challenge = req.query["hub.challenge"];
-
-  if (mode === "subscribe" && token === VERIFY_TOKEN) {
-    return res.status(200).send(challenge);
+  if (req.query["hub.mode"] === "subscribe" && req.query["hub.verify_token"] === VERIFY_TOKEN) {
+    return res.status(200).send(req.query["hub.challenge"]);
   }
   res.sendStatus(403);
 });
 
-// ===== WEBHOOK MENSAJES =====
-
 app.post("/webhook", async (req, res) => {
   try {
-    const msg = req.body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
-    if (!msg) return res.sendStatus(200);
+    const value = req.body.entry?.[0]?.changes?.[0]?.value;
+    const msg = value?.messages?.[0];
+
+    // ✅ FILTRO CORREGIDO: Ignora notificaciones de sistema para evitar "opción inválida"
+    if (!msg || msg.type !== 'text' || !msg.text?.body) {
+      return res.sendStatus(200);
+    }
 
     const from = msg.from;
-    const text = msg.text?.body?.toLowerCase()?.trim();
+    const text = msg.text.body.toLowerCase().trim();
+
+    // 2. BOTÓN DE PÁNICO
+    if (text === "hola" || text === "inicio" || text === "menú") {
+      delete users[from];
+    }
 
     if (!users[from]) users[from] = { step: "saludo" };
     const user = users[from];
 
-// ================= FLUJO =================
-
-    // 🔹 SALUDO
+    // --- FLUJO DE DIÁLOGO ---
+    
     if (user.step === "saludo") {
-      await send(from,
-`👋 Bienvenido a *Barbería Elite*
-
-Para agendar tu cita necesito:
-
-✍️ Nombre
-📱 Celular
-
-Ejemplo:
-Juan Pérez, 3001234567`);
+      await send(from, `👋 Bienvenido a *Barbería Elite*\n\nEscribe tu *Nombre y Celular* para iniciar.\n\nEjemplo: Juan Pérez, 3001234567`);
       user.step = "datos";
     }
 
-    // 🔹 DATOS
     else if (user.step === "datos") {
       const p = text.split(",");
-      if (p.length < 2) {
-        await send(from, "❌ Formato incorrecto");
-        return res.sendStatus(200);
-      }
-
+      if (p.length < 2) return await send(from, "❌ Formato incorrecto. Usa: Nombre, Teléfono");
       user.nombre = p[0].trim();
       user.telefono = p[1].trim();
-
-      await send(from,
-`💈 Selecciona barbero:
-
-1️⃣ Carlos
-2️⃣ Andrés
-3️⃣ Miguel`);
-
-      user.step = "barbero";
+      await mostrarBarberos(from, user);
     }
 
-    // 🔹 BARBERO
-    else if (user.step === "barbero") {
+    else if (user.step === "esperar_barbero") {
       const idx = parseInt(text) - 1;
-      if (!BARBEROS[idx]) {
-        await send(from, "❌ Opción inválida");
-        return res.sendStatus(200);
-      }
-
+      if (!BARBEROS[idx]) return await send(from, "❌ Elige 1, 2 o 3.");
       user.barbero = BARBEROS[idx];
-
-      const fechas = fechasDisponibles();
-      user.fechas = fechas;
-
-      await send(from,
-`📅 Fechas disponibles (30 días):
-
-${fechas.map((f,i)=>`${i+1}️⃣ ${f}`).join("\n")}
-
-Escribe el número`);
-      user.step = "fecha";
+      if (user.servicio) await mostrarResumen(from, user);
+      else await mostrarFechas(from, user);
     }
 
-    // 🔹 FECHA
-    else if (user.step === "fecha") {
+    else if (user.step === "esperar_fecha") {
       const idx = parseInt(text) - 1;
-      const fecha = user.fechas[idx];
-      if (!fecha) {
-        await send(from,"❌ Fecha inválida");
-        return res.sendStatus(200);
-      }
-
-      user.fecha = fecha;
-
-      const libres = horasLibres(user.barbero, fecha);
-      if (libres.length === 0) {
-        await send(from,"⚠️ No hay horas ese día");
-        return res.sendStatus(200);
-      }
-
-      user.horas = libres;
-
-      await send(from,
-`⏰ Horas disponibles:
-
-${libres.map((h,i)=>`${i+1}️⃣ ${h}`).join("\n")}
-
-Escribe el número`);
-      user.step = "hora";
+      if (!user.fechas?.[idx]) return await send(from, "❌ Fecha inválida.");
+      user.fecha = user.fechas[idx];
+      await send(from, `🔍 Consultando turnos para el ${user.fecha}...`);
+      await mostrarHoras(from, user);
     }
 
-    // 🔹 HORA
-    else if (user.step === "hora") {
+    else if (user.step === "esperar_hora") {
       const idx = parseInt(text) - 1;
-      const hora = user.horas[idx];
-      if (!hora) {
-        await send(from,"❌ Hora inválida");
-        return res.sendStatus(200);
+      if (user.listaHorasDisponibles && idx === user.listaHorasDisponibles.length) {
+        return await mostrarFechas(from, user);
       }
-
-      user.hora = hora;
-
-      await send(from,
-`✂️ Servicios:
-
-1️⃣ Corte — $20.000
-2️⃣ Barba — $15.000
-3️⃣ Corte + Barba — $32.000`);
-
-      user.step = "servicio";
+      if (!user.listaHorasDisponibles || !user.listaHorasDisponibles[idx]) {
+        return await send(from, "❌ Opción inválida. Elige un número de la lista.");
+      }
+      user.hora = user.listaHorasDisponibles[idx];
+      if (user.servicio) await mostrarResumen(from, user);
+      else await mostrarServicios(from, user);
     }
 
-    // 🔹 SERVICIO
-    else if (user.step === "servicio") {
+    else if (user.step === "esperar_servicio") {
       const s = SERVICIOS[text];
-      if (!s) {
-        await send(from,"❌ Servicio inválido");
-        return res.sendStatus(200);
-      }
-
+      if (!s) return await send(from, "❌ Opción inválida.");
       user.servicio = s;
-
-      await send(from,
-`✅ CONFIRMAR CITA
-
-Cliente: ${user.nombre}
-Barbero: ${user.barbero}
-Fecha: ${user.fecha}
-Hora: ${user.hora}
-Servicio: ${s.nombre}
-Precio: $${s.precio}
-
-Responde SI para confirmar`);
-
-      user.step = "confirmar";
+      await mostrarResumen(from, user);
     }
 
-    // 🔹 CONFIRMAR
     else if (user.step === "confirmar") {
-      if (text !== "si") {
-        await send(from,"❌ Cita cancelada");
+      if (text === "si") {
+        await send(from, "⏳ Finalizando tu reserva...");
+        const exito = await guardarReserva(user);
+        if (exito) {
+          await send(from, `🎉 *¡Cita Confirmada!*\n\nTe esperamos el ${user.fecha} a las ${user.hora}. 💈`);
+          delete users[from]; // ✅ Limpia sesión tras éxito
+        } else {
+          await send(from, "❌ Error al guardar. Por favor, escribe *SI* para reintentar o *HOLA* para reiniciar.");
+        }
+      } 
+      else if (text === "modificar") {
+        user.step = "menu_modificar";
+        await send(from, `¿Qué deseas cambiar?\n\n1️⃣ Barbero\n2️⃣ Fecha\n3️⃣ Hora\n4️⃣ Servicio\n5️⃣ Reiniciar todo`);
+      } 
+      else if (text === "cancelar") {
+        await send(from, "❌ Proceso cancelado. Escribe 'hola' para empezar de nuevo.");
         delete users[from];
-        return res.sendStatus(200);
       }
+    }
 
-      guardarReserva(user.barbero, user.fecha, user.hora);
-
-      await send(from,
-`🎉 Cita agendada correctamente
-
-Nos vemos 💈`);
-
-      delete users[from];
+    else if (user.step === "menu_modificar") {
+      if (text === "1") await mostrarBarberos(from, user);
+      else if (text === "2") await mostrarFechas(from, user);
+      else if (text === "3") {
+        await send(from, "🔍 Actualizando horarios...");
+        await mostrarHoras(from, user);
+      }
+      else if (text === "4") await mostrarServicios(from, user);
+      else if (text === "5") { delete users[from]; await send(from, "Hola"); }
+      else await send(from, "❌ Elige una opción (1-5)");
     }
 
     res.sendStatus(200);
-
   } catch (e) {
-    console.error(e);
-    res.sendStatus(500);
+    console.error("Error en Webhook:", e.message);
+    res.sendStatus(200);
   }
 });
 
-// ===== FUNCIONES =====
-
-function fechasDisponibles() {
-  const hoy = new Date();
-  const arr = [];
-  for (let i=0;i<30;i++){
-    const d = new Date(hoy);
-    d.setDate(d.getDate()+i);
-    arr.push(d.toISOString().slice(0,10));
-  }
-  return arr;
+async function mostrarBarberos(from, user) {
+  user.step = "esperar_barbero";
+  await send(from, `💈 Selecciona tu barbero preferido:\n\n1️⃣ Carlos\n2️⃣ Andrés\n3️⃣ Miguel`);
 }
 
-function horasLibres(barbero, fecha) {
-  const ocupadas = reservas[barbero]?.[fecha] || [];
-  return HORAS.filter(h => !ocupadas.includes(h));
+async function mostrarFechas(from, user) {
+  user.fechas = Array.from({length: 15}, (_, i) => {
+    const d = new Date(); d.setDate(d.getDate() + i);
+    return d.toISOString().slice(0, 10);
+  });
+  user.step = "esperar_fecha";
+  await send(from, `📅 Selecciona una fecha:\n\n${user.fechas.map((f,i)=>`${i+1}️⃣ ${f}`).join("\n")}\n\nEscribe el número correspondiente.`);
 }
 
-function guardarReserva(barbero, fecha, hora) {
-  if (!reservas[barbero]) reservas[barbero] = {};
-  if (!reservas[barbero][fecha]) reservas[barbero][fecha] = [];
-  reservas[barbero][fecha].push(hora);
+async function mostrarHoras(from, user) {
+  const ocupadas = await obtenerHorasOcupadas(user.barbero, user.fecha);
+  user.listaHorasDisponibles = HORAS.filter(h => !ocupadas.includes(h));
+  user.step = "esperar_hora";
+  let mensajeHoras = user.listaHorasDisponibles.map((h, i) => `${i + 1}️⃣ ${h}`).join("\n");
+  const opcionVolver = user.listaHorasDisponibles.length + 1;
+  mensajeHoras += `\n\n${opcionVolver}️⃣ *Cambiar de fecha* 📅`;
+  await send(from, `⏰ Horas disponibles para el ${user.fecha}:\n\n${mensajeHoras}\n\nEscribe el número correspondiente.`);
+}
+
+async function obtenerHorasOcupadas(barbero, fecha) {
+  try {
+    const res = await axios.get(`${SHEET_API}?barbero=${encodeURIComponent(barbero)}&fecha=${fecha}`, { timeout: 8000 });
+    return Array.isArray(res.data) ? res.data.map(h => h.toString().replace(/'/g, "").trim()) : [];
+  } catch (e) { return []; }
+}
+
+async function mostrarServicios(from, user) {
+  user.step = "esperar_servicio";
+  await send(from, `✂️ ¿Qué servicio deseas?\n\n1️⃣ Corte — $20.000\n2️⃣ Barba — $15.000\n3️⃣ Corte + Barba — $32.000`);
+}
+
+async function mostrarResumen(from, user) {
+  user.step = "confirmar";
+  await send(from, `✅ *RESUMEN DE TU CITA*\n\n👤 Cliente: ${user.nombre}\n💈 Barbero: ${user.barbero}\n📅 Fecha: ${user.fecha}\n⏰ Hora: ${user.hora}\n✂️ Servicio: ${user.servicio.nombre}\n💰 Precio: $${user.servicio.precio}\n\n¿Los datos son correctos?\n👍 Responde *SI* para confirmar\n🔄 Responde *MODIFICAR*\n❌ Responde *CANCELAR*`);
+}
+
+async function guardarReserva(user) {
+  try {
+    const res = await axios.post(SHEET_API, {
+      nombre: user.nombre, telefono: user.telefono, barbero: user.barbero,
+      fecha: user.fecha, hora: user.hora, servicio: user.servicio
+    }, { timeout: 8000 });
+    return res.data.ok;
+  } catch (e) { return false; }
 }
 
 async function send(to, text) {
-  await axios.post(
-    `https://graph.facebook.com/v18.0/${PHONE_ID}/messages`,
-    {
-      messaging_product: "whatsapp",
-      to,
-      text: { body: text }
-    },
-    {
-      headers: {
-        Authorization: `Bearer ${WHATSAPP_TOKEN}`,
-        "Content-Type": "application/json"
-      }
-    }
-  );
+  try {
+    await axios.post(`https://graph.facebook.com/v18.0/${PHONE_ID}/messages`, {
+      messaging_product: "whatsapp", to, text: { body: text }
+    }, { headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` } });
+  } catch (e) { console.error("Error envío WhatsApp:", e.response?.data || e.message); }
 }
 
-app.listen(PORT, () => console.log("💈 Bot barbería activo"));
+app.listen(PORT, () => console.log(`💈 Bot listo en puerto ${PORT}`));
