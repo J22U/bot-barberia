@@ -23,7 +23,7 @@ const HORAS = ["06:00", "06:30", "07:00", "07:30", "08:00", "08:30", "09:00", "0
 
 const users = {};
 const timers = {}; 
-const msgIds = new Set(); // --- NUEVO: Para evitar procesar mensajes duplicados ---
+const msgIds = new Set(); 
 
 function obtenerEmoji(numero) {
   const mapping = {
@@ -44,16 +44,14 @@ app.post("/webhook", async (req, res) => {
   const value = req.body.entry?.[0]?.changes?.[0]?.value;
   const msg = value?.messages?.[0];
 
-  // --- PROTECCIÓN CONTRA REINTENTOS Y MENSAJES FANTASMA ---
   if (!msg || !msg.id || msgIds.has(msg.id)) {
     return res.sendStatus(200);
   }
   
-  // Guardamos el ID por 10 segundos y luego lo borramos
   msgIds.add(msg.id);
   setTimeout(() => msgIds.delete(msg.id), 10000);
 
-  res.sendStatus(200); // Respondemos OK de inmediato a WhatsApp
+  res.sendStatus(200); 
 
   try {
     if (msg.type !== 'text' || !msg.text?.body) return;
@@ -78,8 +76,6 @@ app.post("/webhook", async (req, res) => {
     if (!users[from]) users[from] = { step: "saludo" };
     const user = users[from];
 
-    // --- FLUJO DE DIÁLOGO ---
-    
     if (user.step === "saludo") {
       await send(from, `👋 Bienvenido a *Barbería Elite*\n\nNuestros servicios y precios:\n\nCorte — $20.000\nBarba — $15.000\nCorte + Barba — $32.000\n\n¿Qué deseas hacer?\n\n1️⃣ *Agendar cita*\n2️⃣ *Cancelar cita*\n\nEscribe el número de tu opción.`);
       user.step = "menu_principal";
@@ -191,12 +187,16 @@ app.post("/webhook", async (req, res) => {
 
     else if (user.step === "confirmar") {
       if (text === "si") {
-        await send(from, "⏳ Finalizando tu reserva...");
-        const exito = await guardarReserva(user);
-        if (exito) {
+        await send(from, "⏳ Verificando disponibilidad final...");
+        const resultado = await guardarReserva(user);
+        
+        if (resultado === "ok") {
           await send(from, `🎉 *¡Cita Confirmada!*\n\nTe esperamos el ${user.fecha} a las ${user.hora}. 💈`);
           delete users[from];
           if (timers[from]) clearTimeout(timers[from]);
+        } else if (resultado === "ocupado") {
+          await send(from, `⚠️ *¡Atención!* El turno de las ${user.hora} con ${user.barbero} acaba de ser reservado por alguien más.\n\nPor favor, selecciona una nueva hora disponible:`);
+          await mostrarHoras(from, user);
         } else {
           await send(from, "❌ Error al guardar. Escribe *SI* para reintentar o *HOLA* para reiniciar.");
         }
@@ -271,14 +271,25 @@ async function mostrarResumen(from, user) {
   await send(from, `✅ *RESUMEN DE TU CITA*\n\n👤 Cliente: ${user.nombre}\n💈 Barbero: ${user.barbero}\n📅 Fecha: ${user.fecha}\n⏰ Hora: ${user.hora}\n✂️ Servicio: ${user.servicio.nombre}\n💰 Precio: $${user.servicio.precio}\n\n¿Los datos son correctos?\n👍 Responde *SI* para confirmar\n🔄 Responde *MODIFICAR*\n❌ Responde *CANCELAR*`);
 }
 
+// --- ACTUALIZACIÓN: LÓGICA DE GUARDADO CON DOBLE VERIFICACIÓN ---
 async function guardarReserva(user) {
   try {
+    // 1. Re-verificamos disponibilidad justo antes de guardar
+    const ocupadas = await obtenerHorasOcupadas(user.barbero, user.fecha);
+    if (ocupadas.includes(user.hora)) {
+      return "ocupado";
+    }
+
+    // 2. Si está libre, intentamos guardar
     const res = await axios.post(SHEET_API, {
       nombre: user.nombre, telefono: user.telefono, barbero: user.barbero,
       fecha: user.fecha, hora: user.hora, servicio: user.servicio
     }, { timeout: 8000 });
-    return res.data.ok;
-  } catch (e) { return false; }
+    
+    return res.data.ok ? "ok" : "error";
+  } catch (e) { 
+    return "error"; 
+  }
 }
 
 async function send(to, text) {
