@@ -22,6 +22,7 @@ const SERVICIOS = {
 const HORAS = ["08:00", "08:30", "09:00", "09:30", "10:00", "10:30", "11:30", "12:00", "12:30", "13:00", "13:30", "14:00", "14:30", "15:00", "15:30", "16:00", "16:30", "17:00", "17:30", "18:00", "18:30", "19:00"];
 
 const users = {};
+const timers = {}; // Almacena los temporizadores de inactividad
 
 app.get("/webhook", (req, res) => {
   if (req.query["hub.mode"] === "subscribe" && req.query["hub.verify_token"] === VERIFY_TOKEN) {
@@ -42,6 +43,19 @@ app.post("/webhook", async (req, res) => {
     const from = msg.from;
     const text = msg.text.body.toLowerCase().trim();
 
+    // --- LÓGICA DE CIERRE POR INACTIVIDAD CON MENSAJE ---
+    if (timers[from]) clearTimeout(timers[from]);
+    
+    timers[from] = setTimeout(async () => {
+      if (users[from]) {
+        delete users[from];
+        // Enviamos el mensaje de notificación al usuario
+        await send(from, "⏰ *Sesión finalizada por inactividad.*\n\nSi aún deseas realizar tu gestión, escribe *HOLA* de nuevo.");
+        console.log(`Sesión eliminada por inactividad: ${from}`);
+      }
+    }, 2 * 60 * 1000); 
+    // ---------------------------------------------------
+
     if (text === "hola" || text === "inicio" || text === "menú") {
       delete users[from];
     }
@@ -61,7 +75,6 @@ app.post("/webhook", async (req, res) => {
         await send(from, `Perfecto, vamos a agendar. Escribe tu *Nombre, apellido y Celular*.\n\nEjemplo: Juan Pérez, 3001234567`);
         user.step = "datos";
       } else if (text === "2") {
-        // CAMBIO: Ahora pide el nombre para buscar
         await send(from, `Entiendo. Por favor, escribe el *Nombre* con el que registraste la cita para buscarla.`);
         user.step = "buscar_por_nombre";
       } else {
@@ -69,7 +82,6 @@ app.post("/webhook", async (req, res) => {
       }
     }
 
-    // NUEVO PASO: Buscar citas por el nombre proporcionado
     else if (user.step === "buscar_por_nombre") {
       await send(from, `⏳ Buscando citas para *${text}*...`);
       try {
