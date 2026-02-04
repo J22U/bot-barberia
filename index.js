@@ -22,7 +22,16 @@ const SERVICIOS = {
 const HORAS = ["08:00", "08:30", "09:00", "09:30", "10:00", "10:30", "11:30", "12:00", "12:30", "13:00", "13:30", "14:00", "14:30", "15:00", "15:30", "16:00", "16:30", "17:00", "17:30", "18:00", "18:30", "19:00"];
 
 const users = {};
-const timers = {}; // Almacena los temporizadores de inactividad
+const timers = {}; 
+
+// --- FUNCIÓN PARA CONVERTIR NÚMEROS A EMOJIS AZULES ---
+function obtenerEmoji(numero) {
+  const mapping = {
+    '0': '0️⃣', '1': '1️⃣', '2': '2️⃣', '3': '3️⃣', '4': '4️⃣',
+    '5': '5️⃣', '6': '6️⃣', '7': '7️⃣', '8': '8️⃣', '9': '9️⃣'
+  };
+  return numero.toString().split('').map(digito => mapping[digito]).join('');
+}
 
 app.get("/webhook", (req, res) => {
   if (req.query["hub.mode"] === "subscribe" && req.query["hub.verify_token"] === VERIFY_TOKEN) {
@@ -43,18 +52,15 @@ app.post("/webhook", async (req, res) => {
     const from = msg.from;
     const text = msg.text.body.toLowerCase().trim();
 
-    // --- LÓGICA DE CIERRE POR INACTIVIDAD CON MENSAJE ---
     if (timers[from]) clearTimeout(timers[from]);
     
     timers[from] = setTimeout(async () => {
       if (users[from]) {
         delete users[from];
-        // Enviamos el mensaje de notificación al usuario
         await send(from, "⏰ *Sesión finalizada por inactividad.*\n\nSi aún deseas realizar tu gestión, escribe *HOLA* de nuevo.");
         console.log(`Sesión eliminada por inactividad: ${from}`);
       }
     }, 2 * 60 * 1000); 
-    // ---------------------------------------------------
 
     if (text === "hola" || text === "inicio" || text === "menú") {
       delete users[from];
@@ -63,8 +69,6 @@ app.post("/webhook", async (req, res) => {
     if (!users[from]) users[from] = { step: "saludo" };
     const user = users[from];
 
-    // --- FLUJO DE DIÁLOGO ---
-    
     if (user.step === "saludo") {
       await send(from, `👋 Bienvenido a *Barbería Elite*\n\n¿Qué deseas hacer?\n\n1️⃣ *Agendar cita*\n2️⃣ *Cancelar cita*\n\nEscribe el número de tu opción.`);
       user.step = "menu_principal";
@@ -92,7 +96,7 @@ app.post("/webhook", async (req, res) => {
           user.citasPendientes = citas;
           let mensaje = "He encontrado estas citas. ¿Cuál deseas cancelar? (Escribe el número):\n\n";
           citas.forEach((c, i) => {
-            mensaje += `${i + 1}️⃣ *${c.cliente}* - ${c.fecha} a las ${c.hora} con ${c.barbero}\n`;
+            mensaje += `${obtenerEmoji(i + 1)} *${c.cliente}* - ${c.fecha} a las ${c.hora} con ${c.barbero}\n`;
           });
           await send(from, mensaje);
           user.step = "seleccionar_cancelacion";
@@ -224,16 +228,17 @@ async function mostrarFechas(from, user) {
     return d.toISOString().slice(0, 10);
   });
   user.step = "esperar_fecha";
-  await send(from, `📅 Selecciona una fecha:\n\n${user.fechas.map((f,i)=>`${i+1}️⃣ ${f}`).join("\n")}\n\nEscribe el número correspondiente.`);
+  const listaFechas = user.fechas.map((f, i) => `${obtenerEmoji(i + 1)} ${f}`).join("\n");
+  await send(from, `📅 Selecciona una fecha:\n\n${listaFechas}\n\nEscribe el número correspondiente.`);
 }
 
 async function mostrarHoras(from, user) {
   const ocupadas = await obtenerHorasOcupadas(user.barbero, user.fecha);
   user.listaHorasDisponibles = HORAS.filter(h => !ocupadas.includes(h));
   user.step = "esperar_hora";
-  let mensajeHoras = user.listaHorasDisponibles.map((h, i) => `${i + 1}️⃣ ${h}`).join("\n");
+  let mensajeHoras = user.listaHorasDisponibles.map((h, i) => `${obtenerEmoji(i + 1)} ${h}`).join("\n");
   const opcionVolver = user.listaHorasDisponibles.length + 1;
-  mensajeHoras += `\n\n${opcionVolver}️⃣ *Cambiar de fecha* 📅`;
+  mensajeHoras += `\n\n${obtenerEmoji(opcionVolver)} *Cambiar de fecha* 📅`;
   await send(from, `⏰ Horas disponibles para el ${user.fecha}:\n\n${mensajeHoras}\n\nEscribe el número correspondiente.`);
 }
 
