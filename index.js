@@ -23,8 +23,8 @@ const HORAS = ["06:00", "06:30", "07:00", "07:30", "08:00", "08:30", "09:00", "0
 
 const users = {};
 const timers = {}; 
+const msgIds = new Set(); // --- NUEVO: Para evitar procesar mensajes duplicados ---
 
-// --- FUNCIÓN PARA CONVERTIR NÚMEROS A EMOJIS AZULES ---
 function obtenerEmoji(numero) {
   const mapping = {
     '0': '0️⃣', '1': '1️⃣', '2': '2️⃣', '3': '3️⃣', '4': '4️⃣',
@@ -41,29 +41,35 @@ app.get("/webhook", (req, res) => {
 });
 
 app.post("/webhook", async (req, res) => {
-  // --- SOLUCIÓN 1: RESPUESTA INMEDIATA PARA EVITAR DUPLICADOS ---
-  res.sendStatus(200);
+  const value = req.body.entry?.[0]?.changes?.[0]?.value;
+  const msg = value?.messages?.[0];
+
+  // --- PROTECCIÓN CONTRA REINTENTOS Y MENSAJES FANTASMA ---
+  if (!msg || !msg.id || msgIds.has(msg.id)) {
+    return res.sendStatus(200);
+  }
+  
+  // Guardamos el ID por 10 segundos y luego lo borramos
+  msgIds.add(msg.id);
+  setTimeout(() => msgIds.delete(msg.id), 10000);
+
+  res.sendStatus(200); // Respondemos OK de inmediato a WhatsApp
 
   try {
-    const value = req.body.entry?.[0]?.changes?.[0]?.value;
-    const msg = value?.messages?.[0];
-
-    if (!msg || msg.type !== 'text' || !msg.text?.body) return;
+    if (msg.type !== 'text' || !msg.text?.body) return;
 
     const from = msg.from;
     const text = msg.text.body.toLowerCase().trim();
 
-    // --- SOLUCIÓN 2: GESTIÓN DE INACTIVIDAD (LIMPIEZA DE TIMERS) ---
     if (timers[from]) clearTimeout(timers[from]);
     
     timers[from] = setTimeout(async () => {
       if (users[from]) {
         delete users[from];
         await send(from, "⏰ *Sesión finalizada por inactividad.*\n\nSi aún deseas realizar tu gestión, escribe *HOLA* de nuevo.");
-        console.log(`Sesión eliminada por inactividad: ${from}`);
       }
       delete timers[from];
-    }, 5 * 60 * 1000); // Subido a 5 minutos para mayor estabilidad
+    }, 5 * 60 * 1000);
 
     if (text === "hola" || text === "inicio" || text === "menú") {
       delete users[from];
@@ -94,8 +100,8 @@ app.post("/webhook", async (req, res) => {
     else if (user.step === "buscar_por_nombre") {
       await send(from, `⏳ Buscando citas para *${text}*...`);
       try {
-        const res = await axios.post(SHEET_API, { accion: "consultar_citas", nombre: text });
-        const citas = res.data.citas;
+        const response = await axios.post(SHEET_API, { accion: "consultar_citas", nombre: text });
+        const citas = response.data.citas;
 
         if (citas && citas.length > 0) {
           user.citasPendientes = citas;
@@ -121,12 +127,12 @@ app.post("/webhook", async (req, res) => {
 
       if (cita) {
         await send(from, `⏳ Cancelando la cita de *${cita.cliente}*...`);
-        const res = await axios.post(SHEET_API, { 
+        const resCanc = await axios.post(SHEET_API, { 
           accion: "confirmar_cancelacion", 
           id: cita.id, 
           hoja: cita.hoja 
         });
-        if (res.data.ok) {
+        if (resCanc.data.ok) {
           await send(from, `✅ Cita del día *${cita.fecha}* ha sido cancelada con éxito.`);
         } else {
           await send(from, `❌ No pudimos cancelar la cita. Por favor intenta de nuevo.`);
