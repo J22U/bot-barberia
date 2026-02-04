@@ -41,17 +41,19 @@ app.get("/webhook", (req, res) => {
 });
 
 app.post("/webhook", async (req, res) => {
+  // --- SOLUCIÓN 1: RESPUESTA INMEDIATA PARA EVITAR DUPLICADOS ---
+  res.sendStatus(200);
+
   try {
     const value = req.body.entry?.[0]?.changes?.[0]?.value;
     const msg = value?.messages?.[0];
 
-    if (!msg || msg.type !== 'text' || !msg.text?.body) {
-      return res.sendStatus(200);
-    }
+    if (!msg || msg.type !== 'text' || !msg.text?.body) return;
 
     const from = msg.from;
     const text = msg.text.body.toLowerCase().trim();
 
+    // --- SOLUCIÓN 2: GESTIÓN DE INACTIVIDAD (LIMPIEZA DE TIMERS) ---
     if (timers[from]) clearTimeout(timers[from]);
     
     timers[from] = setTimeout(async () => {
@@ -60,7 +62,8 @@ app.post("/webhook", async (req, res) => {
         await send(from, "⏰ *Sesión finalizada por inactividad.*\n\nSi aún deseas realizar tu gestión, escribe *HOLA* de nuevo.");
         console.log(`Sesión eliminada por inactividad: ${from}`);
       }
-    }, 2 * 60 * 1000); 
+      delete timers[from];
+    }, 5 * 60 * 1000); // Subido a 5 minutos para mayor estabilidad
 
     if (text === "hola" || text === "inicio" || text === "menú") {
       delete users[from];
@@ -69,6 +72,8 @@ app.post("/webhook", async (req, res) => {
     if (!users[from]) users[from] = { step: "saludo" };
     const user = users[from];
 
+    // --- FLUJO DE DIÁLOGO ---
+    
     if (user.step === "saludo") {
       await send(from, `👋 Bienvenido a *Barbería Elite*\n\nNuestros servicios y precios:\n\nCorte — $20.000\nBarba — $15.000\nCorte + Barba — $32.000\n\n¿Qué deseas hacer?\n\n1️⃣ *Agendar cita*\n2️⃣ *Cancelar cita*\n\nEscribe el número de tu opción.`);
       user.step = "menu_principal";
@@ -131,6 +136,7 @@ app.post("/webhook", async (req, res) => {
         return;
       }
       delete users[from];
+      if (timers[from]) clearTimeout(timers[from]);
     }
 
     else if (user.step === "datos") {
@@ -184,6 +190,7 @@ app.post("/webhook", async (req, res) => {
         if (exito) {
           await send(from, `🎉 *¡Cita Confirmada!*\n\nTe esperamos el ${user.fecha} a las ${user.hora}. 💈`);
           delete users[from];
+          if (timers[from]) clearTimeout(timers[from]);
         } else {
           await send(from, "❌ Error al guardar. Escribe *SI* para reintentar o *HOLA* para reiniciar.");
         }
@@ -195,6 +202,7 @@ app.post("/webhook", async (req, res) => {
       else if (text === "cancelar") {
         await send(from, "❌ Proceso cancelado. Escribe 'hola' para empezar de nuevo.");
         delete users[from];
+        if (timers[from]) clearTimeout(timers[from]);
       }
     }
 
@@ -210,10 +218,8 @@ app.post("/webhook", async (req, res) => {
       else await send(from, "❌ Elige una opción (1-5)");
     }
 
-    res.sendStatus(200);
   } catch (e) {
     console.error("Error en Webhook:", e.message);
-    res.sendStatus(200);
   }
 });
 
