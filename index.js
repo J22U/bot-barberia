@@ -77,13 +77,13 @@ app.post("/webhook", async (req, res) => {
     const user = users[from];
 
     if (user.step === "saludo") {
-      await send(from, `👋 Bienvenido a *Barbería Elite*\n\nNuestros servicios y precios:\n\nCorte — $20.000\nBarba — $15.000\nCorte + Barba — $32.000\n\n¿Qué deseas hacer?\n\n1️⃣ *Agendar cita*\n2️⃣ *Cancelar cita*\n\nEscribe el número de tu opción.`);
+      await send(from, `Escribe el número de tu opción:\n\n👋 Bienvenido a *Barbería Elite*\n\nNuestros servicios y precios:\n\nCorte — $20.000\nBarba — $15.000\nCorte + Barba — $32.000\n\n1️⃣ *Agendar cita*\n2️⃣ *Cancelar cita*`);
       user.step = "menu_principal";
     }
 
     else if (user.step === "menu_principal") {
       if (text === "1") {
-        await send(from, `Perfecto, vamos a agendar. Escribe tu *Nombre, apellido y Celular*.\n\nEjemplo: Juan Pérez, 3001234567`);
+        await send(from, `Perfecto, vamos a agendar. Escribe tu *Nombre, Apellido y Celular separados por una coma*.\n\nEjemplo: Juan Pérez, 3001234567`);
         user.step = "datos";
       } else if (text === "2") {
         await send(from, `Entiendo. Por favor, escribe el *Nombre* con el que registraste la cita para buscarla.`);
@@ -101,7 +101,7 @@ app.post("/webhook", async (req, res) => {
 
         if (citas && citas.length > 0) {
           user.citasPendientes = citas;
-          let mensaje = "He encontrado estas citas. ¿Cuál deseas cancelar? (Escribe el número):\n\n";
+          let mensaje = "Escribe el número de la cita que deseas cancelar:\n\n";
           citas.forEach((c, i) => {
             mensaje += `${obtenerEmoji(i + 1)} *${c.cliente}* - ${c.fecha} a las ${c.hora} con ${c.barbero}\n`;
           });
@@ -203,7 +203,7 @@ app.post("/webhook", async (req, res) => {
       } 
       else if (text === "modificar") {
         user.step = "menu_modificar";
-        await send(from, `¿Qué deseas cambiar?\n\n1️⃣ Barbero\n2️⃣ Fecha\n3️⃣ Hora\n4️⃣ Servicio\n5️⃣ Reiniciar todo`);
+        await send(from, `Escribe el número de la opción que deseas cambiar:\n\n1️⃣ Barbero\n2️⃣ Fecha\n3️⃣ Hora\n4️⃣ Servicio\n5️⃣ Reiniciar todo`);
       } 
       else if (text === "cancelar") {
         await send(from, "❌ Proceso cancelado. Escribe 'hola' para empezar de nuevo.");
@@ -231,7 +231,7 @@ app.post("/webhook", async (req, res) => {
 
 async function mostrarBarberos(from, user) {
   user.step = "esperar_barbero";
-  await send(from, `💈 Selecciona tu barbero preferido:\n\n1️⃣ Carlos\n2️⃣ Andrés\n3️⃣ Miguel`);
+  await send(from, `Escribe el número de tu barbero preferido:\n\n💈 1️⃣ Carlos\n2️⃣ Andrés\n3️⃣ Miguel`);
 }
 
 async function mostrarFechas(from, user) {
@@ -241,7 +241,7 @@ async function mostrarFechas(from, user) {
   });
   user.step = "esperar_fecha";
   const listaFechas = user.fechas.map((f, i) => `${obtenerEmoji(i + 1)} ${f}`).join("\n");
-  await send(from, `📅 Selecciona una fecha:\n\n${listaFechas}\n\nEscribe el número correspondiente.`);
+  await send(from, `Escribe el número de la fecha que deseas:\n\n📅\n\n${listaFechas}`);
 }
 
 async function mostrarHoras(from, user) {
@@ -251,7 +251,7 @@ async function mostrarHoras(from, user) {
   let mensajeHoras = user.listaHorasDisponibles.map((h, i) => `${obtenerEmoji(i + 1)} ${h}`).join("\n");
   const opcionVolver = user.listaHorasDisponibles.length + 1;
   mensajeHoras += `\n\n${obtenerEmoji(opcionVolver)} *Cambiar de fecha* 📅`;
-  await send(from, `⏰ Horas disponibles para el ${user.fecha}:\n\n${mensajeHoras}\n\nEscribe el número correspondiente.`);
+  await send(from, `Escribe el número de la hora que prefieras para el ${user.fecha}:\n\n⏰\n\n${mensajeHoras}`);
 }
 
 async function obtenerHorasOcupadas(barbero, fecha) {
@@ -263,7 +263,7 @@ async function obtenerHorasOcupadas(barbero, fecha) {
 
 async function mostrarServicios(from, user) {
   user.step = "esperar_servicio";
-  await send(from, `✂️ ¿Qué servicio deseas?\n\n1️⃣ Corte — $20.000\n2️⃣ Barba — $15.000\n3️⃣ Corte + Barba — $32.000`);
+  await send(from, `Escribe el número del servicio que deseas:\n\n✂️\n\n1️⃣ Corte — $20.000\n2️⃣ Barba — $15.000\n3️⃣ Corte + Barba — $32.000`);
 }
 
 async function mostrarResumen(from, user) {
@@ -271,16 +271,12 @@ async function mostrarResumen(from, user) {
   await send(from, `✅ *RESUMEN DE TU CITA*\n\n👤 Cliente: ${user.nombre}\n💈 Barbero: ${user.barbero}\n📅 Fecha: ${user.fecha}\n⏰ Hora: ${user.hora}\n✂️ Servicio: ${user.servicio.nombre}\n💰 Precio: $${user.servicio.precio}\n\n¿Los datos son correctos?\n👍 Responde *SI* para confirmar\n🔄 Responde *MODIFICAR*\n❌ Responde *CANCELAR*`);
 }
 
-// --- ACTUALIZACIÓN: LÓGICA DE GUARDADO CON DOBLE VERIFICACIÓN ---
 async function guardarReserva(user) {
   try {
-    // 1. Re-verificamos disponibilidad justo antes de guardar
     const ocupadas = await obtenerHorasOcupadas(user.barbero, user.fecha);
     if (ocupadas.includes(user.hora)) {
       return "ocupado";
     }
-
-    // 2. Si está libre, intentamos guardar
     const res = await axios.post(SHEET_API, {
       nombre: user.nombre, telefono: user.telefono, barbero: user.barbero,
       fecha: user.fecha, hora: user.hora, servicio: user.servicio
