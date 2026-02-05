@@ -241,7 +241,7 @@ async function mostrarFechas(from, user) {
   });
   user.step = "esperar_fecha";
   const listaFechas = user.fechas.map((f, i) => `${obtenerEmoji(i + 1)} ${f}`).join("\n");
-  await send(from, `Escribe el número de la fecha que deseas:\n\n📅\n\n${listaFechas}`);
+  await send(from, `📅Escribe el número de la fecha que deseas:\n\n${listaFechas}`);
 }
 
 async function mostrarHoras(from, user) {
@@ -251,7 +251,7 @@ async function mostrarHoras(from, user) {
   let mensajeHoras = user.listaHorasDisponibles.map((h, i) => `${obtenerEmoji(i + 1)} ${h}`).join("\n");
   const opcionVolver = user.listaHorasDisponibles.length + 1;
   mensajeHoras += `\n\n${obtenerEmoji(opcionVolver)} *Cambiar de fecha* 📅`;
-  await send(from, `Escribe el número de la hora que prefieras para el ${user.fecha}:\n\n⏰\n\n${mensajeHoras}`);
+  await send(from, `⏰Escribe el número de la hora que prefieras para el ${user.fecha}:\n\n${mensajeHoras}`);
 }
 
 async function obtenerHorasOcupadas(barbero, fecha) {
@@ -263,7 +263,7 @@ async function obtenerHorasOcupadas(barbero, fecha) {
 
 async function mostrarServicios(from, user) {
   user.step = "esperar_servicio";
-  await send(from, `Escribe el número del servicio que deseas:\n\n✂️\n\n1️⃣ Corte — $20.000\n2️⃣ Barba — $15.000\n3️⃣ Corte + Barba — $32.000`);
+  await send(from, `✂️Escribe el número del servicio que deseas:\n\n1️⃣ Corte — $20.000\n2️⃣ Barba — $15.000\n3️⃣ Corte + Barba — $32.000`);
 }
 
 async function mostrarResumen(from, user) {
