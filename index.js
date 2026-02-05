@@ -77,7 +77,7 @@ app.post("/webhook", async (req, res) => {
     const user = users[from];
 
     if (user.step === "saludo") {
-      await send(from, `Escribe el número de tu opción:\n\n👋 Bienvenido a *Barbería Elite*\n\nNuestros servicios y precios:\n\nCorte — $20.000\nBarba — $15.000\nCorte + Barba — $32.000\n\n1️⃣ *Agendar cita*\n2️⃣ *Cancelar cita*`);
+  await send(from, `👋 Bienvenido a *Barbería Elite*\n\nNuestros servicios y precios:\n\nCorte — $20.000\nBarba — $15.000\nCorte + Barba — $32.000\n\nEscribe el número de la opción que deseas:\n\n1️⃣ *Agendar cita*\n2️⃣ *Cancelar cita*`);
       user.step = "menu_principal";
     }
 
