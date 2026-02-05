@@ -231,7 +231,7 @@ app.post("/webhook", async (req, res) => {
 
 async function mostrarBarberos(from, user) {
   user.step = "esperar_barbero";
-  await send(from, `Escribe el número de tu barbero preferido:\n\n💈 1️⃣ Carlos\n2️⃣ Andrés\n3️⃣ Miguel`);
+  await send(from, `💈Escribe el número de tu barbero preferido:\n\n1️⃣ Carlos\n2️⃣ Andrés\n3️⃣ Miguel`);
 }
 
 async function mostrarFechas(from, user) {
