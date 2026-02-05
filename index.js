@@ -246,8 +246,37 @@ async function mostrarFechas(from, user) {
 
 async function mostrarHoras(from, user) {
   const ocupadas = await obtenerHorasOcupadas(user.barbero, user.fecha);
-  user.listaHorasDisponibles = HORAS.filter(h => !ocupadas.includes(h));
+  
+  // 🔹 FILTRO DE HORAS PASADAS (SOLO PARA HOY) 🔹
+  const ahora = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Bogota" }));
+  const hoyStr = ahora.toISOString().slice(0, 10);
+  
+  user.listaHorasDisponibles = HORAS.filter(h => {
+    // Primero revisamos si la hora ya está ocupada en el Excel
+    if (ocupadas.includes(h)) return false;
+
+    // Si la fecha seleccionada es hoy, filtramos las que ya pasaron
+    if (user.fecha === hoyStr) {
+      const [horaH, minH] = h.split(":").map(Number);
+      const horaActual = ahora.getHours();
+      const minActual = ahora.getMinutes();
+
+      // Mostramos el turno si la hora es mayor a la actual,
+      // o si es la misma hora pero faltan más de 10 minutos para el turno
+      if (horaH > horaActual) return true;
+      if (horaH === horaActual && minH > (minActual + 10)) return true;
+      return false;
+    }
+    
+    return true; // Para fechas futuras, mostramos todas las no ocupadas
+  });
+
   user.step = "esperar_hora";
+  if (user.listaHorasDisponibles.length === 0) {
+    await send(from, `😔 Lo sentimos, no quedan turnos disponibles para el día de hoy (${user.fecha}).\n\nPor favor, selecciona otra fecha escribiendo el número correspondiente:`);
+    return await mostrarFechas(from, user);
+  }
+
   let mensajeHoras = user.listaHorasDisponibles.map((h, i) => `${obtenerEmoji(i + 1)} ${h}`).join("\n");
   const opcionVolver = user.listaHorasDisponibles.length + 1;
   mensajeHoras += `\n\n${obtenerEmoji(opcionVolver)} *Cambiar de fecha* 📅`;
